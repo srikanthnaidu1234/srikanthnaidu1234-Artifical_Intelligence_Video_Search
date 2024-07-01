@@ -1,0 +1,32 @@
+[tool]
+[tool.poetry]
+name = "video-detector"
+version = "0.1.0"
+description = "A FastAPI application for downloading YouTube videos"
+authors = ["Srikanth Naidu <srikanth.dbit04@gmail.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+fastapi = "^0.68.0"
+pydantic = "^1.9.0"
+pytube = "15.0.0"
+youtube-transcript-api = "^0.4.1"
+uvicorn = "^0.15.0"
+opencv-python = "^4.5.5"
+numpy = "^1.21.0"
+psycopg2-binary = "^2.9.3"
+torch = "^2.3.0"
+tqdm = "^4.64.0"
+pandas = "^1.4.3"
+Pillow = "^9.2.0"
+torchvision = "^0.18.0"
+sqlalchemy = "^1.4.0"
+
+[tool.poetry.dev-dependencies]
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+uvicorn = "uvicorn src.video_detector:app --host 0.0.0.0 --port 8000"

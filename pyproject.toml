@@ -1,0 +1,28 @@
+[tool.rye.workspace]
+members = ["mydetector"]
+
+[project]
+name = "default"
+version = "0.1.0"
+description = "Add your description here"
+authors = [
+    { name = "Srikanth Naidu",  email = "srikanth.dbit04@gmail.com"}
+]
+dependencies = [
+    "pre-commit>=3.7.1",
+    "jupyterlab-quarto>=0.3.3",
+    "jupyter>=1.0.0",
+]
+readme = "README.md"
+requires-python = ">= 3.7"
+
+[tool.rye]
+managed = true
+virtual = true
+dev-dependencies = [
+    "pytest>=8.2.1",
+    "pre-commit>=3.7.1",
+    "ruff>=0.4.7",
+]
+
+

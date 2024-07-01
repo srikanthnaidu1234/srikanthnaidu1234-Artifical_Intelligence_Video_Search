@@ -1,0 +1,22 @@
+project:
+  type: manuscript
+
+manuscript:
+  article: index.ipynb
+
+format:
+  html:
+    comments:
+      hypothesis: true
+    code-fold: true
+  pdf: default
+  # jats: default
+
+  # (other formats)
+  # pdf: default
+
+execute:
+  freeze: true
+
+
+

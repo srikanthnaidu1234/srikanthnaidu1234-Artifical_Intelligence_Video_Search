@@ -1,0 +1,62 @@
+FROM debian:bookworm-slim as builder
+
+ARG UID=10001
+RUN adduser \
+    --disabled-password \
+    --gecos "" \
+    --home "/app" \
+    --shell "/sbin/nologin" \
+    --uid "${UID}" \
+    appuser
+
+WORKDIR /opt
+
+ENV RYE_HOME="/opt/rye"
+ENV PATH="$RYE_HOME/shims:$PATH"
+
+# hadolint ignore=DL3008
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl
+
+SHELL [ "/bin/bash", "-o", "pipefail", "-c" ]
+RUN curl -sSf https://rye.astral.sh/get | RYE_INSTALL_OPTION="--yes" bash && \
+    rye config --set-bool behavior.global-python=true && \
+    rye config --set-bool behavior.use-uv=true
+
+WORKDIR /app
+COPY ./src ./src
+COPY ./mydetector ./mydetector
+COPY ./.python-version ./pyproject.toml ./requirements* README.md ./
+
+RUN chown -R appuser:appuser /app
+USER appuser
+
+RUN --mount=type=cache,target=/app/.cache/pip,uid=$UID
+RUN rye pin "$(cat .python-version)"
+RUN rye sync --no-dev --no-lock \
+    && rye build --all --wheel --clean \
+    && sed '/-e/d' requirements.lock > dist/requirements.lock
+
+# production container
+FROM builder as prod
+
+USER appuser
+
+# add bin user folder
+# to have access to [project.scripts]
+# installed by your packages
+ENV PATH=/app/.local/bin:$PATH
+
+# mount pip cache to reuse dependencies already downloaded in the first step
+# mount dist directory to have access to modified requirements.lock file and built wheels
+# install dependencies for requirements.lock file (pip cache will be used from the previous stage, so no new downloads should happen)
+# and wheels directly from directory
+RUN --mount=type=cache,target=/app/.cache/pip,uid=$UID \
+    --mount=type=bind,from=builder,source=/app/dist,target=/app/dist
+
+#RUN /opt/rye/py/cpython@3.12.3/bin/pip install --no-cache-dir -r requirements.lock
+RUN PYTHONDONTWRITEBYTECODE=1 /opt/rye/py/cpython@3.12.3/bin/pip install -r /app/dist/requirements.lock /app/dist/*.whl
+
+CMD python src/app.py
