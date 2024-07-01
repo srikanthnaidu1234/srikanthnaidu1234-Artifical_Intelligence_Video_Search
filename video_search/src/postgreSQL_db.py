@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any  # noqa: INP001
 
 from sqlalchemy import JSON, Column, Float, Integer, String, create_engine
 from sqlalchemy.ext.declarative import declarative_base

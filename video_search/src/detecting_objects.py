@@ -1,13 +1,10 @@
-import logging
+import logging  # noqa: INP001
 
 import numpy as np
 import torch
-from PIL import Image
-from torchvision import transforms
 from torchvision.models.detection import fasterrcnn_resnet50_fpn
 
 # Configure logging
-# Set the logging level to INFO (DEBUG, INFO,WARNING, ERROR, CRITICAL)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -27,8 +24,8 @@ def detect_objects(video_id: str, frames_file: str) -> list[dict[str, any]]:  # 
 
     Returns:
     -------
-    - List[Dict[str, any]]: A list of dictionaries, where each dictionary represents\
-    a detected object and contains the following keys:
+    - List[Dict[str, any]]: A list of dictionaries, where each dictionary represents
+    a detected object and contains keys:
         - 'vidId': The unique identifier of the video.
         - 'frameNum': The number of the video frame.
         - 'timestamp': The timestamp of the video frame.
@@ -47,46 +44,51 @@ def detect_objects(video_id: str, frames_file: str) -> list[dict[str, any]]:  # 
 
     """
     try:
-        # Load frames and metadata from npy file
-        frames = np.load(frames_file)
+        frames_raw = np.load(frames_file)
+        frames = np.squeeze(frames_raw, axis=1)
         logger.info(f"Loaded {len(frames)} frames from {frames_file}")  # noqa: G004
 
         # Assuming you have the video ID and frame timestamps available
         vid_id = video_id
         frame_timestamps = [i * 0.2 for i in range(len(frames))]  # Example timestamps
 
-    except FileNotFoundError:
-        raise FileNotFoundError(f"File {frames_file} not found.")  # noqa: B904, TRY003, EM102
+        # Ensure frames are in [num_frames, height, width, channels] format
+        # Convert the numpy array to a list of tensors
+        frames = [torch.from_numpy(frame) for frame in frames]
 
-    model = fasterrcnn_resnet50_fpn(pretrained=True)
-    logger.info("The model is pretrained by faster-rcnn using MS COCO classes")
+        logger.info("Converted the numpy array to a list of torch tensors")
+
+    except FileNotFoundError:
+        raise FileNotFoundError(  # noqa: B904, TRY003
+            f"File {frames_file} not found."  # noqa: EM102
+        )  # Handle file not found error
+
+    # Initialize the Faster R-CNN model
+    model = fasterrcnn_resnet50_fpn(weights="FasterRCNN_ResNet50_FPN_Weights.COCO_V1")
     model.eval()
 
     detections = []
-    logger.info("checking the frames for the object similar to MS coco clases")
-    for frame_num, frame in enumerate(frames):
-        pil_img = Image.fromarray(frame)
-        img_tensor = transforms.ToTensor()(pil_img)
-        img_tensor = img_tensor.unsqueeze(0)  # Add batch dimension
 
-        with torch.no_grad():
-            output = model([img_tensor])  # Pass the tensor as a list
+    with torch.no_grad():
+        for idx, frame_tensor in enumerate(frames):
+            # Ensure frame_tensor has correct shape [channels, height, width]
+            output = model([frame_tensor.permute(2, 0, 1)])
 
-        for idx in range(len(output[0]["labels"])):
-            label = output[0]["labels"][idx].item()
-            score = output[0]["scores"][idx].item()
-            bbox = output[0]["boxes"][idx].tolist()
+            for detection_idx in range(len(output[0]["labels"])):
+                label = output[0]["labels"][detection_idx].item()
+                score = output[0]["scores"][detection_idx].item()
+                bbox = output[0]["boxes"][detection_idx].tolist()
 
-            detection = {
-                "vidId": vid_id,
-                "frameNum": frame_num,
-                "timestamp": frame_timestamps[frame_num],
-                "detectedObjId": idx,
-                "detectedObjClass": label,
-                "confidence": score,
-                "bbox": bbox,
-            }
+                detection = {
+                    "vidId": vid_id,
+                    "frameNum": idx,  # Use the index as the frame number
+                    "timestamp": frame_timestamps[idx],
+                    "detectedObjId": detection_idx,
+                    "detectedObjClass": label,
+                    "confidence": score,
+                    "bbox": bbox,
+                }
 
-            detections.append(detection)
+                detections.append(detection)
 
     return detections
