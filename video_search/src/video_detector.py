@@ -1,13 +1,14 @@
 import logging  # noqa: INP001
 import os
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query
 from pydantic import BaseModel
 from pytube import YouTube
 from sqlalchemy.orm import Session
 from youtube_transcript_api import YouTubeTranscriptApi
 
 from .detecting_objects import detect_objects
+from .embedding_model import train_autoencoder_and_generate_embeddings
 from .postgreSQL_db import get_db, insert_detection
 from .video_indexing_pipeline import preprocess_video
 
@@ -36,6 +37,55 @@ class DownloadResponse(BaseModel):
     video_path: str
     captions_file: str
     video_id: str
+
+
+class UpdateEmbeddingRequest(BaseModel):
+    """Represents the request body schema for updating object embeddings."""
+
+    video_id: str
+
+
+class TrainingConfig(BaseModel):
+    """Configuration model for autoencoder training and embedding generation.
+
+    This Pydantic model defines the parameters required for training an autoencoder
+    on the COCO dataset and generating embeddings for detected objects.
+
+    Attributes:
+    ----------
+        coco_images_path (str): The file system path to the COCO dataset images.
+            Defaults to "path/to/coco/images".
+        coco_annotations_path (str): The file system path to the COCO dataset annotations file.
+            Defaults to "path/to/coco/annotations/instances_train2017.json".
+        num_epochs (int): The number of training epochs for the autoencoder.
+            Defaults to 50.
+        batch_size (int): The batch size to use during training.
+            Defaults to 128.
+
+    Example:
+    -------
+        ```python
+        config = TrainingConfig(
+            coco_images_path="/data/coco/images",
+            coco_annotations_path="/data/coco/annotations/instances_train2017.json",
+            num_epochs=100,
+            batch_size=64
+        )
+        ```
+
+    Note:
+    ----
+        - Ensure that the paths provided for `coco_images_path` and `coco_annotations_path`
+        are valid and accessible.
+        - Adjust `num_epochs` and `batch_size` based on your computational resources
+        and dataset size for optimal training performance.
+
+    """
+
+    coco_images_path: str
+    coco_annotations_path: str
+    num_epochs: int = 50
+    batch_size: int = 128
 
 
 class YouTubeDownloader:
@@ -73,9 +123,10 @@ class YouTubeDownloader:
         try:
             logger.info(video_url)
             yt = YouTube(video_url)
+            video_id = yt.video_id
             logger.info(f"Downloading video: {yt.title}")  # noqa: G004
             video = yt.streams.get_highest_resolution()
-            return video.download(self.output_dir)
+            return video.download(self.output_dir, filename=video_id)
         except KeyError:
             raise HTTPException(  # noqa: B904
                 status_code=500, detail="Invalid response received from YouTube"
@@ -202,7 +253,6 @@ async def process_frames(
         logger.info("detecting of object is started")
         # Perform object detection on the video frames
         detections = detect_objects(video_id, processed_video_frames)
-        logger.info(1000000000)
         # Save detections to the database
         for detection in detections:
             insert_detection(db, detection)
@@ -211,3 +261,62 @@ async def process_frames(
 
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=f"Failed to process frames: {e}")  # noqa: B904
+
+
+@app.post("/train-and-generate")
+async def train_and_generate(
+    config: TrainingConfig, background_tasks: BackgroundTasks
+) -> str:
+    """
+    Initiate the autoencoder training and embedding generation process.
+
+    This endpoint triggers the training of an autoencoder on the COCO dataset
+    and the generation of embeddings for detected objects. The process runs
+    in the background to avoid blocking the API.
+
+    Args:
+    ----
+        config (TrainingConfig): The configuration parameters for the training
+            and embedding generation process. This includes paths to COCO dataset
+            images and annotations, as well as training hyperparameters.
+        background_tasks (BackgroundTasks): FastAPI's BackgroundTasks object
+            used to run the process asynchronously.
+
+    Returns:
+    -------
+        Dict[str, str]: A dictionary containing a message confirming that the
+        process has been started in the background.
+
+    Raises:
+    ------
+        HTTPException: If there's an error in initiating the background task.
+
+    Example:
+    -------
+        ```
+        POST /train-and-generate
+        {
+            "coco_images_path": "/path/to/coco/images",
+            "coco_annotations_path": "/path/to/coco/annotations/instances_train2017.json",
+            "num_epochs": 50,
+            "batch_size": 128
+        }
+        ```
+
+    Note:
+    ----
+        - This method does not wait for the training and embedding generation
+        to complete. It immediately returns after initiating the background task.
+        - The actual progress and completion of the task should be monitored
+        through logs or a separate status endpoint.
+
+    """  # noqa: D212
+    # Run the function in the background
+    background_tasks.add_task(
+        train_autoencoder_and_generate_embeddings,
+        coco_images_path=config.coco_images_path,
+        coco_annotations_path=config.coco_annotations_path,
+        num_epochs=config.num_epochs,
+        batch_size=config.batch_size,
+    )
+    return {"message": "Training and embedding generation started in the background"}

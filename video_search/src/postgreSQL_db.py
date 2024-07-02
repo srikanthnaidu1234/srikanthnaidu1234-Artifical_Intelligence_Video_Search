@@ -1,10 +1,16 @@
-from typing import Any  # noqa: INP001
+import os
+from typing import Any
 
+from dotenv import load_dotenv
 from sqlalchemy import JSON, Column, Float, Integer, String, create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session, sessionmaker
 
-DATABASE_URL = "postgresql://postgres:N%40black08@localhost/detectdb"
+# Load environment variables from .env file
+load_dotenv()
+
+DATABASE_URL = f"postgresql://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}@{os.getenv('POSTGRES_HOST')}:{os.getenv('POSTGRES_PORT')}/{os.getenv('POSTGRES_DB')}"
+
 # DATABASE_URL = "postgresql://postgres:pwd@localhost/dbname"  # noqa: ERA001
 
 engine = create_engine(DATABASE_URL)
