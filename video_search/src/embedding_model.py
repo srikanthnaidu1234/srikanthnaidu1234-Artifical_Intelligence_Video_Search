@@ -1,4 +1,5 @@
-import logging  # noqa: INP001
+import json
+import logging
 import os
 
 import cv2
@@ -83,7 +84,7 @@ class Autoencoder(nn.Module):
         return decoded  # noqa: RET504
 
 
-def train_autoencoder_and_generate_embeddings(
+def train_autoencoder_and_generate_embeddings(  # noqa: PLR0915
     coco_images_path: str,
     coco_annotations_path: str,
     num_epochs: int = 50,
@@ -113,12 +114,6 @@ def train_autoencoder_and_generate_embeddings(
         None
 
     """  # noqa: D205
-    if
-    # Train the autoencoder
-    autoencoder = Autoencoder()
-    criterion = nn.BCELoss()
-    optimizer = torch.optim.Adam(autoencoder.parameters(), lr=0.001)
-
     conn = psycopg2.connect(
         host=os.getenv("POSTGRES_HOST"),
         database=os.getenv("POSTGRES_DB"),
@@ -126,61 +121,91 @@ def train_autoencoder_and_generate_embeddings(
         password=os.getenv("POSTGRES_PASSWORD"),
     )
     cur = conn.cursor()
+    try:
+        cur.execute("""
+            ALTER TABLE "detections"
+            ADD COLUMN IF NOT EXISTS "embedding" JSONB;
+        """)
+        conn.commit()
+    except psycopg2.errors.DuplicateColumn as e:
+        logger.info(f"Column 'embedding' already exists in the 'detections' table: {e}")  # noqa: G004
+    except Exception as e:  # noqa: BLE001
+        logger.info(f"Error occurred: {e}")  # noqa: G004
+        conn.rollback()
+    finally:
+        cur.close()
+    cur = conn.cursor()
+    # Check if the saved model exists
+    model_path = "autoencoder_model.pth"
+    if os.path.exists(model_path):  # noqa: PTH110
+        autoencoder = Autoencoder()
+        autoencoder.load_state_dict(torch.load(model_path))
+        autoencoder.eval()
+        logger.info("Loaded saved model.")
+    else:
+        # Train the autoencoder
+        autoencoder = Autoencoder()
+        criterion = nn.BCELoss()
+        optimizer = torch.optim.Adam(autoencoder.parameters(), lr=0.001)
+        # Fetch the unique class IDs from the Postgres table
+        cur.execute('SELECT DISTINCT "detectedObjClass" FROM detections')
+        class_ids = [row[0] for row in cur]
+        # Load the COCO dataset and filter by the classes in the Postgres table
+        coco_dataset = CocoDetection(
+            root=coco_images_path,
+            annFile=coco_annotations_path,
+            transform=transforms.Compose(
+                [
+                    transforms.Resize((28, 28)),
+                    transforms.ToTensor(),
+                ]
+            ),
+            target_transform=lambda x: x in class_ids,
+        )
 
-    # Fetch the unique class IDs from the Postgres table
-    cur.execute('SELECT DISTINCT "detectedObjClass" FROM detections')
-    class_ids = [row[0] for row in cur]
+        train_loader = torch.utils.data.DataLoader(
+            coco_dataset, batch_size=batch_size, shuffle=True
+        )
 
-    # Load the COCO dataset and filter by the classes in the Postgres table
-    coco_dataset = CocoDetection(
-        root=coco_images_path,
-        annFile=coco_annotations_path,
-        transform=transforms.Compose(
-            [
-                transforms.Resize((28, 28)),
-                transforms.ToTensor(),
-            ]
-        ),
-        target_transform=lambda x: x in class_ids,
-    )
-
-    train_loader = torch.utils.data.DataLoader(
-        coco_dataset, batch_size=batch_size, shuffle=True
-    )
-
-    for epoch in range(num_epochs):
-        for i, (images, _) in enumerate(train_loader):
-            # Forward pass
-            outputs = autoencoder(images)
-            outputs = autoencoder(images)
-            outputs = F.interpolate(
-                outputs, size=images.size()[2:], mode="bilinear", align_corners=True
-            )
-
-            loss = criterion(outputs, images)
-
-            # Backward and optimize
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-
-            if (i + 1) % 100 == 0:
-                logger.info(
-                    f"Epoch [{epoch+1}/{num_epochs}], \
-                    Step [{i+1}/{len(coco_dataset)//batch_size}], \
-                    Loss: {loss.item():.4f}"  # noqa: G004
+        for epoch in range(num_epochs):
+            for i, (images, _) in enumerate(train_loader):
+                # Forward pass
+                outputs = autoencoder(images)
+                outputs = autoencoder(images)
+                outputs = F.interpolate(
+                    outputs, size=images.size()[2:], mode="bilinear", align_corners=True
                 )
-    # Save the autoencoder model
-    torch.save(autoencoder.state_dict(), "./model/autoencoder_model.pth")
 
-    cur.execute("SELECT DISTINCT vidId FROM detections")
+                loss = criterion(outputs, images)
+
+                # Backward and optimize
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+
+                if (i + 1) % 100 == 0:
+                    logger.info(
+                        f"Epoch [{epoch+1}/{num_epochs}], \
+                        Step [{i+1}/{len(coco_dataset)//batch_size}], \
+                        Loss: {loss.item():.4f}"  # noqa: G004
+                    )
+        # Save the autoencoder model
+        torch.save(autoencoder.state_dict(), "autoencoder_model.pth")
+
+    cur.execute('SELECT DISTINCT "vidId" FROM "detections"')
     vid_ids = [row[0] for row in cur]
+    logger.info(f"The video list is :{vid_ids}")  # noqa: G004
+    # Add the "embedding" column with JSON type
 
     # Generate embeddings for detected objects
     for vid_id in set(vid_ids):
-        cur.execute("SELECT * FROM detections WHERE vidId = %s", (vid_id,))
+        query = """SELECT * FROM "detections" WHERE "vidId" = '{vid_id}';"""
+        cur.execute(query)
+        logger.info(cur.rowcount)
         # Open the video capture
-        cap = cv2.VideoCapture("./download/{vid_id}.mp4")
+        video_path = f"./download/{vid_id}.mp4"
+        cap = cv2.VideoCapture(video_path)
+        logger.info(f"The path for the video is {video_path}")  # noqa: G004
         saved_fps = 5  # The fps at which frame_idx was saved
 
         for row in cur:
@@ -201,21 +226,22 @@ def train_autoencoder_and_generate_embeddings(
                 continue
 
             # Crop the image based on the bounding box
-            x, y, w, h = bbox
+            x, y, w, h = (int(value) for value in bbox)
             cropped_img = frame[y : y + h, x : x + w]
 
             # Resize the cropped image to match the input size of the encoder
-            cropped_img = transforms.Resize((28, 28))(cropped_img)
             cropped_img = transforms.ToTensor()(cropped_img)
+            cropped_img = transforms.Resize((28, 28))(cropped_img)
             cropped_img = cropped_img.unsqueeze(0)  # Add batch dimension
 
             # Generate the embedding using the encoder
             embedding = autoencoder.encoder(cropped_img).detach().numpy()
 
             # Update the Postgres table with the embedding
+            embedding_json = json.dumps(embedding.tolist())
             cur.execute(
-                "UPDATE detections SET embedding = %s WHERE detectedObjId = %s",
-                (embedding.tobytes(), detection_idx),
+                'UPDATE "detections" SET "embedding" = %s WHERE "detectedObjId" = %s',
+                (embedding_json, detection_idx),
             )
 
         cap.release()

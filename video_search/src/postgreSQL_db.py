@@ -1,4 +1,4 @@
-import os
+import os  # noqa: INP001
 from typing import Any
 
 from dotenv import load_dotenv

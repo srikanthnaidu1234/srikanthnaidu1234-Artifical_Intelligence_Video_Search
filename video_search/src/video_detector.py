@@ -55,7 +55,8 @@ class TrainingConfig(BaseModel):
     ----------
         coco_images_path (str): The file system path to the COCO dataset images.
             Defaults to "path/to/coco/images".
-        coco_annotations_path (str): The file system path to the COCO dataset annotations file.
+        coco_annotations_path (str): The file system path to COCO dataset annotations
+        file.
             Defaults to "path/to/coco/annotations/instances_train2017.json".
         num_epochs (int): The number of training epochs for the autoencoder.
             Defaults to 50.
@@ -75,7 +76,8 @@ class TrainingConfig(BaseModel):
 
     Note:
     ----
-        - Ensure that the paths provided for `coco_images_path` and `coco_annotations_path`
+        - Ensure that the paths provided for `coco_images_path` and
+        `coco_annotations_path`
         are valid and accessible.
         - Adjust `num_epochs` and `batch_size` based on your computational resources
         and dataset size for optimal training performance.
@@ -296,8 +298,8 @@ async def train_and_generate(
         ```
         POST /train-and-generate
         {
-            "coco_images_path": "/path/to/coco/images",
-            "coco_annotations_path": "/path/to/coco/annotations/instances_train2017.json",
+            "coco_images_path": "/path/coco/images",
+            "coco_annotations_path": "/path/coco/annotations/instances_train2017.json",
             "num_epochs": 50,
             "batch_size": 128
         }
