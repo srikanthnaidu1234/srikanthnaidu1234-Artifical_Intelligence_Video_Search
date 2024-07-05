@@ -3,6 +3,7 @@ import logging
 import os
 
 import cv2
+import pandas as pd
 import psycopg2
 import torch
 import torch.nn.functional as F  # noqa: N812
@@ -199,7 +200,7 @@ def train_autoencoder_and_generate_embeddings(  # noqa: PLR0915
 
     # Generate embeddings for detected objects
     for vid_id in set(vid_ids):
-        query = """SELECT * FROM "detections" WHERE "vidId" = '{vid_id}';"""
+        query = """SELECT * FROM "detections" WHERE "vidId" = '"wbWRWeVe1XE"';"""
         cur.execute(query)
         logger.info(cur.rowcount)
         # Open the video capture
@@ -207,11 +208,19 @@ def train_autoencoder_and_generate_embeddings(  # noqa: PLR0915
         cap = cv2.VideoCapture(video_path)
         logger.info(f"The path for the video is {video_path}")  # noqa: G004
         saved_fps = 5  # The fps at which frame_idx was saved
+        # Fetch all the rows
+        rows = cur.fetchall()
 
-        for row in cur:
-            frame_idx = row[1]
-            detection_idx = row[3]
-            bbox = row[6]
+        # Get the column names
+        column_names = [desc[0] for desc in cur.description]
+        # Create a DataFrame from the rows
+        df_embed = pd.DataFrame(rows, columns=column_names)
+        logger.info(df_embed.head())
+        for row in df_embed.iterrows():
+            logger.info(row)
+            frame_idx = row[1]["frameNum"]
+            detection_idx = row[1]["detectedObjId"]
+            bbox = row[1]["bbox"]
 
             # Calculate the time of the frame
             frame_time = frame_idx / saved_fps
