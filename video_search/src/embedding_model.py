@@ -200,9 +200,8 @@ def train_autoencoder_and_generate_embeddings(  # noqa: PLR0915
 
     # Generate embeddings for detected objects
     for vid_id in set(vid_ids):
-        query = """SELECT * FROM "detections" WHERE "vidId" = '"wbWRWeVe1XE"';"""
+        query = f"""SELECT * FROM "detections" WHERE "vidId" = '{vid_id}';"""  # noqa: S608
         cur.execute(query)
-        logger.info(cur.rowcount)
         # Open the video capture
         video_path = f"./download/{vid_id}.mp4"
         cap = cv2.VideoCapture(video_path)
@@ -215,9 +214,7 @@ def train_autoencoder_and_generate_embeddings(  # noqa: PLR0915
         column_names = [desc[0] for desc in cur.description]
         # Create a DataFrame from the rows
         df_embed = pd.DataFrame(rows, columns=column_names)
-        logger.info(df_embed.head())
         for row in df_embed.iterrows():
-            logger.info(row)
             frame_idx = row[1]["frameNum"]
             detection_idx = row[1]["detectedObjId"]
             bbox = row[1]["bbox"]
