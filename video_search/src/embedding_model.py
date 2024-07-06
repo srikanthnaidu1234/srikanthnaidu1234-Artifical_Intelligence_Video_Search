@@ -249,7 +249,7 @@ def train_autoencoder_and_generate_embeddings(  # noqa: PLR0915
                 'UPDATE "detections" SET "embedding" = %s WHERE "detectedObjId" = %s',
                 (embedding_json, detection_idx),
             )
-
+            logger.info(f"The embedding is completed for : {row}")  # noqa: G004
+            conn.commit()
         cap.release()
-        conn.commit()
     conn.close()
